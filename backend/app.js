@@ -10,9 +10,12 @@ app.use(express.json());
 // API endpoint to summarize text
 app.post('/api/summarize', async (req, res) => {
   const { text } = req.body;
-  if (!text) {
+  
+  // Enhanced input validation
+  if (!text || typeof text !== 'string' || text.trim().length === 0) {
     return res.status(400).json({ error: "Text is required" });
   }
+  
   try {
     const summary = await llmService.summarize(text);
     res.json({ summary });
@@ -23,6 +26,12 @@ app.post('/api/summarize', async (req, res) => {
 });
 
 const port = config.server.port;
-app.listen(port, () => {
-  console.log(`✅ Backend server running on port ${port}`);
-});
+
+// Only start the server if this file is run directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  app.listen(port, () => {
+    console.log(`✅ Backend server running on port ${port}`);
+  });
+}
+
+export default app;
