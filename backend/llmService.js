@@ -1,58 +1,129 @@
-import fetch from 'node-fetch'; 
-import path from 'path';
-import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
+import fetch from 'node-fetch';
+import config from './config.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const result = dotenv.config({ path: path.join(__dirname, '.env') });
-if (result.error) {
-  console.warn('Warning: .env file not found. Please create a .env file in the backend directory.');
-  console.warn('Required environment variables: OPENAI_API_KEY');
-  console.warn('You can copy .env.example to .env and fill in your values.');
-}
-
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-
-// handle missing openai-api key
-if (!OPENAI_API_KEY) {
-  console.error('❌ OPENAI_API_KEY is not set in environment variables');
-  console.error('Please create a .env file in the backend directory with:');
-  console.error('OPENAI_API_KEY=your_actual_api_key_here');
-  console.error('');
-  console.error('You can get your API key from: https://platform.openai.com/api-keys');
-  throw new Error('Missing OPENAI_API_KEY in environment. Please check the console for setup instructions.🚀');
-}
-
-console.log('✅ OPENAI_API_KEY is properly configured');
-
-async function summarize(text) {
-  const prompt = `Summarize the following text in a concise paragraph:\n\n${text}`;
-
-  const response = await fetch('https://api.openai.com/v1/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${OPENAI_API_KEY}` 
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      prompt,
-      max_tokens: 150, // Limit the length of the summary
-      temperature: 0.7, // Creativity level
-      n: 1, // Number of completions to generate
-      stop: null // Sequence to stop generation
-    })
-  });
+/**
+ * Validates that the required environment variables are set
+ * @throws {Error} - If OPENAI_API_KEY is missing
+ */
+function validateEnvironment() {
+  if (!config.openai.apiKey) {
+    console.error('❌ OPENAI_API_KEY is not set in environment variables');
+    console.error('Please create a .env file in the backend directory with:');
+    console.error('OPENAI_API_KEY=your_actual_api_key_here');
+    console.error('');
+    console.error('You can get your API key from: https://platform.openai.com/api-keys');
+    throw new Error('Missing OPENAI_API_KEY in environment. Please check the console for setup instructions.');
+  }
   
-  if (!response.ok) {
+  console.log('✅ OPENAI_API_KEY is properly configured');
+}
+
+/**
+ * Validates input text for summarization
+ * @param {string} text - Text to validate
+ * @returns {boolean} - Whether text is valid
+ */
+function validateInput(text) {
+  if (!text || typeof text !== 'string') {
+    return false;
+  }
+  
+  if (text.trim().length === 0) {
+    return false;
+  }
+  
+  if (text.length > config.openai.maxInputLength) {
+    return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Creates the OpenAI API request payload
+ * @param {string} text - Text to summarize
+ * @returns {Object} - API request payload
+ */
+function createApiPayload(text) {
+  return {
+    model: config.openai.model,
+    prompt: `Summarize the following text in a concise paragraph:\n\n${text}`,
+    max_tokens: config.openai.maxTokens,
+    temperature: config.openai.temperature,
+    n: 1,
+    stop: null,
+  };
+}
+
+/**
+ * Handles OpenAI API errors with better error messages
+ * @param {Response} response - Fetch response object
+ * @returns {Promise<never>} - Throws error with details
+ */
+async function handleApiError(response) {
+  let errorMessage = `OpenAI API error: ${response.status} ${response.statusText}`;
+  
+  try {
     const errorData = await response.json();
-    throw new Error(`OpenAI API error: ${response.status} ${response.statusText} - ${JSON.stringify(errorData)}`);
+    if (errorData.error?.message) {
+      errorMessage += ` - ${errorData.error.message}`;
+    } else if (errorData.error) {
+      errorMessage += ` - ${JSON.stringify(errorData.error)}`;
+    }
+  } catch (parseError) {
+    // If we can't parse the error response, use the status text
+    console.warn('Could not parse error response:', parseError.message);
+  }
+  
+  throw new Error(errorMessage);
+}
+
+/**
+ * Summarizes text using OpenAI API
+ * @param {string} text - Text to summarize
+ * @returns {Promise<string>} - Summarized text
+ * @throws {Error} - If input is invalid or API call fails
+ */
+async function summarize(text) {
+  // Validate environment first
+  validateEnvironment();
+  
+  // Input validation
+  if (!validateInput(text)) {
+    throw new Error('Invalid input: Text must be a non-empty string under 10,000 characters');
   }
 
-  const data = await response.json();
-  return data.choices[0].text.trim();
+  try {
+    const response = await fetch(`${config.api.baseUrl}/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${config.openai.apiKey}`,
+      },
+      body: JSON.stringify(createApiPayload(text)),
+    });
+
+    if (!response.ok) {
+      await handleApiError(response);
+    }
+
+    const data = await response.json();
+    return data.choices[0]?.text?.trim() || 'No summary generated';
+    
+  } catch (error) {
+    // Re-throw validation errors as-is
+    if (error.message.includes('Invalid input:')) {
+      throw error;
+    }
+    
+    // Enhance API errors with context
+    if (error.message.includes('OpenAI API error:')) {
+      throw error;
+    }
+    
+    // Handle network/other errors
+    throw new Error(`Summarization failed: ${error.message}`);
+  }
 }
 
 export default { summarize };
