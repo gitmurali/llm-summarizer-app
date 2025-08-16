@@ -1,51 +1,64 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import App from './App';
-import * as api from './api'; // Import all exports from api.js
+import { render, screen, fireEvent } from "@testing-library/react";
+import App from "./App";
+import * as api from "./api";
 
-// Test suite for the App component
-describe('App component', () => {
-  // Test case: checks if the component renders correctly with its main title
-  it('renders correctly', () => {
+afterEach(() => {
+  jest.clearAllMocks();
+});
+
+beforeAll(() => {
+  jest.spyOn(console, "error").mockImplementation(() => {});
+});
+
+afterAll(() => {
+  console.error.mockRestore();
+});
+
+describe("App component", () => {
+  it("renders correctly", () => {
     render(<App />);
     expect(screen.getByText(/llm content summarizer/i)).toBeInTheDocument();
   });
 
-  // Test case: checks if an error message appears when submitting empty text
-  it('shows error when submitting empty text', () => {
+  it("shows error when submitting empty text", async () => {
     render(<App />);
-    fireEvent.click(screen.getByText(/summarize/i)); // Click the summarize button
-    expect(screen.getByText(/please enter text to summarize/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
+    expect(
+      await screen.findByText(/please enter text to summarize/i)
+    ).toBeInTheDocument();
   });
 
-  // Test case: checks if the summary is displayed after a successful API call
-  it('shows summary after successful API call', async () => {
-    // Mock the summarizeText function to return a predefined successful response
-    jest.spyOn(api, 'summarizeText').mockResolvedValue({ summary: 'Mock summary text' });
+  it("shows summary after successful API call", async () => {
+    jest
+      .spyOn(api, "summarizeText")
+      .mockResolvedValue({ summary: "Mock summary text" });
     render(<App />);
 
-    // Type some text into the textarea
-    fireEvent.change(screen.getByPlaceholderText(/paste or enter text here/i), { target: { value: 'Some text' } });
-    fireEvent.click(screen.getByText(/summarize/i)); // Click the summarize button
+    fireEvent.change(screen.getByPlaceholderText(/paste or enter text here/i), {
+      target: { value: "Some text" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
 
-    // Wait for the summary text to appear in the document after the async operation
-    await waitFor(() => expect(screen.getByText(/mock summary text/i)).toBeInTheDocument());
-    // Verify that the mock API function was called
-    expect(api.summarizeText).toHaveBeenCalledWith('Some text');
+    expect(await screen.findByText(/mock summary text/i)).toBeInTheDocument();
+    expect(api.summarizeText).toHaveBeenCalledWith("Some text");
   });
 
-  // Test case: checks if an error message is displayed on API failure
-  it('shows error message on API failure', async () => {
-    // Mock the summarizeText function to simulate an API error
-    jest.spyOn(api, 'summarizeText').mockRejectedValue(new Error('API failure'));
+  it("shows error message on API failure", async () => {
+    jest
+      .spyOn(api, "summarizeText")
+      .mockRejectedValue(new Error("API failure"));
     render(<App />);
 
-    // Type some text into the textarea
-    fireEvent.change(screen.getByPlaceholderText(/paste or enter text here/i), { target: { value: 'Some text' } });
-    fireEvent.click(screen.getByText(/summarize/i)); // Click the summarize button
+    fireEvent.change(screen.getByPlaceholderText(/paste or enter text here/i), {
+      target: { value: "Some text" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /summarize/i }));
 
-    // Wait for the error message to appear in the document
-    await waitFor(() => expect(screen.getByText(/failed to fetch summary/i)).toBeInTheDocument());
-    // Verify that the mock API function was called
-    expect(api.summarizeText).toHaveBeenCalledWith('Some text');
+    expect(
+      await screen.findByText(
+        /failed to fetch summary\. please check your input or try again later\./i
+      )
+    ).toBeInTheDocument();
+    expect(api.summarizeText).toHaveBeenCalledWith("Some text");
   });
 });
